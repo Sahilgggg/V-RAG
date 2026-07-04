@@ -91,7 +91,7 @@ if process_btn:
     ("human", "{question}")
 ])
 
-# FIX: Use itemgetter to extract the actual string from the dictionary
+
                 context_and_question = RunnableParallel({
     'context': itemgetter("question") | retriever | RunnableLambda(format_docs),
     'question': itemgetter("question")
