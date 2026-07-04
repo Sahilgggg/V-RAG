@@ -4,12 +4,13 @@ from langchain_community.document_loaders import YoutubeLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace, HuggingFaceEndpointEmbeddings
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from operator import itemgetter
+
 st.set_page_config(page_title="YouTube RAG Assistant", page_icon="📺", layout="wide")
 st.title("📺 Interactive YouTube Video Assistant")
 st.write("Extract insights, generate automatic summaries, and chat directly with any YouTube video.")
@@ -52,11 +53,11 @@ if process_btn:
                 video_url = video_input
             
             try:
-                # 1. Fetch Transcripts (LangChain Native Way - Bypasses the bug!)
+                # 1. Fetch Transcripts
                 loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=False)
                 docs = loader.load()
                 
-                # 2. Chunking (We use split_documents now instead of create_documents)
+                # 2. Chunking
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = splitter.split_documents(docs)
                 
@@ -74,25 +75,25 @@ if process_btn:
                 retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
                 
                 # 4. LLM Setup
-                # 4. LLM Setup
                 llm = HuggingFaceEndpoint(
-    repo_id="Qwen/Qwen2.5-7B-Instruct", 
-    task="text-generation",
-    max_new_tokens=512,
-    huggingfacehub_api_token=hf_api_token
-)
+                    repo_id="Qwen/Qwen2.5-7B-Instruct", 
+                    task="text-generation",
+                    max_new_tokens=512,
+                    huggingfacehub_api_token=hf_api_token
+                )
                 chat_model = ChatHuggingFace(llm=llm)
-# 5. Prompts
-                prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an AI assistant analyzing a video transcript. Answer using ONLY the context below.\n\nContext:\n{context}"),
-    MessagesPlaceholder(variable_name="history"),
-    ("human", "{question}")
-])
 
-                context_and_question = RunnableParallel({
-    'context': itemgetter("question") | retriever | RunnableLambda(format_docs),
-    'question': itemgetter("question")
-})
+                # 5. RAG Prompts & Chains
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", "You are an AI assistant analyzing a video transcript. Answer using ONLY the context below.\n\nContext:\n{context}"),
+                    MessagesPlaceholder(variable_name="history"),
+                    ("human", "{question}")
+                ])
+
+                # Use RunnablePassthrough.assign to keep 'question' and 'history', while adding 'context'
+                context_and_question = RunnablePassthrough.assign(
+                    context=itemgetter("question") | retriever | RunnableLambda(format_docs)
+                )
                 
                 base_chain = context_and_question | prompt | chat_model | StrOutputParser()
                 
@@ -103,12 +104,21 @@ if process_btn:
                     history_messages_key="history"
                 )
                 
-                summary_generation_chain = context_and_question | ChatPromptTemplate.from_messages([
+                # 6. Improved Summary Logic (Reads the first 3000 chars of the actual transcript)
+                full_text = " ".join([doc.page_content for doc in docs])
+                summary_text = full_text[:3000] # Truncate to avoid context window limits
+                
+                summary_prompt = ChatPromptTemplate.from_messages([
                     ("system", "Provide a systematic, bulleted summary highlighting the core concepts from this video context.\n\nContext:\n{context}"),
                     ("human", "{question}")
-                ]) | chat_model | StrOutputParser()
+                ])
                 
-                st.session_state.summary = summary_generation_chain.invoke({"question": "Summarize the video contents structurally."})
+                summary_chain = summary_prompt | chat_model | StrOutputParser()
+                st.session_state.summary = summary_chain.invoke({
+                    "context": summary_text, 
+                    "question": "Summarize the video contents structurally."
+                })
+                
                 st.sidebar.success("Processing complete!")
                 
             except Exception as e:
