@@ -1,5 +1,5 @@
 streamlit
-youtube-transcript-api==0.6.2
+youtube-transcript-api
 langchain-core
 langchain-community
 langchain-huggingface
