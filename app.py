@@ -55,21 +55,14 @@ if process_btn:
             os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_api_token
             video_id = get_video_id(video_input)
             
-            try:
-                # 1. Fetch Transcripts 
-                transcript_fetcher = YouTubeTranscriptApi.list_transcripts(video_id, cookies="cookies.txt")
-                
-                try:
-                    transcript_list = transcript_fetcher.find_transcript(['en'])
-                except:
-                    # Fallback:
-                    for t in transcript_fetcher:
-                        transcript_list = t.translate('en')
-                        break
-                
-                transcript_data = transcript_list.fetch()
+            try: 
+                # 1. Fetch Transcripts
+                transcript_data = YouTubeTranscriptApi.get_transcript(
+                            video_id, 
+                            languages=['en'], 
+                            cookies="cookies.txt"
+                        )
                 transcript = " ".join(chunk["text"] for chunk in transcript_data)
-                
                 # 2. Chunking
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = splitter.create_documents([transcript])
