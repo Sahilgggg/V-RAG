@@ -46,18 +46,18 @@ if process_btn:
         with st.spinner("Processing video transcript and building memory..."):
             os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_api_token
             
-            # Auto-format the URL if the user just pastes an ID like 'aircAruvnKk'
+            
             if "youtube.com" not in video_input and "youtu.be" not in video_input:
                 video_url = f"https://www.youtube.com/watch?v={video_input}"
             else:
                 video_url = video_input
             
             try:
-                # 1. Fetch Transcripts
+                # Loading transcript
                 loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=False)
                 docs = loader.load()
                 
-                # 2. Chunking
+                #  Chunking
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = splitter.split_documents(docs)
                 
@@ -65,7 +65,7 @@ if process_btn:
                     st.sidebar.error("No transcript found for this video.")
                     st.stop()
                 
-                # 3. Embeddings & FAISS
+                # 3. Embeddings and FAISS
                 embeddings = HuggingFaceEndpointEmbeddings(
                     model="sentence-transformers/all-MiniLM-L6-v2",
                     task="feature-extraction",
@@ -74,7 +74,7 @@ if process_btn:
                 vector_store = FAISS.from_documents(chunks, embeddings)
                 retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
                 
-                # 4. LLM Setup
+                # 4. LLM 
                 llm = HuggingFaceEndpoint(
                     repo_id="Qwen/Qwen2.5-7B-Instruct", 
                     task="text-generation",
@@ -83,14 +83,14 @@ if process_btn:
                 )
                 chat_model = ChatHuggingFace(llm=llm)
 
-                # 5. RAG Prompts & Chains
+                # 5. RAG Prompts
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", "You are an AI assistant analyzing a video transcript. Answer using ONLY the context below.\n\nContext:\n{context}"),
                     MessagesPlaceholder(variable_name="history"),
                     ("human", "{question}")
                 ])
 
-                # Use RunnablePassthrough.assign to keep 'question' and 'history', while adding 'context'
+                
                 context_and_question = RunnablePassthrough.assign(
                     context=itemgetter("question") | retriever | RunnableLambda(format_docs)
                 )
@@ -104,7 +104,7 @@ if process_btn:
                     history_messages_key="history"
                 )
                 
-                # 6. Improved Summary Logic (Reads the first 3000 chars of the actual transcript)
+                
                 full_text = " ".join([doc.page_content for doc in docs])
                 summary_text = full_text[:3000] # Truncate to avoid context window limits
                 
