@@ -10,6 +10,8 @@ from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace, HuggingF
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from operator import itemgetter
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 # --- Page Configuration ---
 st.set_page_config(page_title="YouTube RAG Assistant", page_icon="📺", layout="wide")
@@ -55,7 +57,13 @@ if process_btn:
             
             try:
                 # 1. Fetch Transcripts (LangChain Native Way - Bypasses the bug!)
-                loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=False)
+                loader = YoutubeLoader.from_youtube_url(
+                    video_url, 
+                    add_video_info=False,
+                    transcript_format=YouTubeTranscriptApi.FORMAT_TEXT,
+                    proxies={"http": "", "https": ""}, # Keep empty unless using proxies
+                    cookies="cookies.txt" # Points to your exported file
+                )
                 docs = loader.load()
                 
                 # 2. Chunking (We use split_documents now instead of create_documents)
