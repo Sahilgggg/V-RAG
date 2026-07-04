@@ -1,6 +1,7 @@
 import streamlit as st
 import os
-from langchain_community.document_loaders import YoutubeLoader
+from operator import itemgetter
+from youtube_transcript_api import YouTubeTranscriptApi
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -9,14 +10,18 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace, HuggingFaceEndpointEmbeddings
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from operator import itemgetter
-from youtube_transcript_api import YouTubeTranscriptApi
 
 
-# --- Page Configuration ---
 st.set_page_config(page_title="YouTube RAG Assistant", page_icon="📺", layout="wide")
 st.title("📺 Interactive YouTube Video Assistant")
 st.write("Extract insights, generate automatic summaries, and chat directly with any YouTube video.")
+
+def get_video_id(url_or_id):
+    if "v=" in url_or_id:
+        return url_or_id.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in url_or_id:
+        return url_or_id.split("youtu.be/")[1].split("?")[0]
+    return url_or_id
 
 def format_docs(retrieved_docs):
     return "\n\n".join(doc.page_content for doc in retrieved_docs)
@@ -48,27 +53,26 @@ if process_btn:
     else:
         with st.spinner("Processing video transcript and building memory..."):
             os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_api_token
-            
-            # Auto-format the URL if the user just pastes an ID like 'aircAruvnKk'
-            if "youtube.com" not in video_input and "youtu.be" not in video_input:
-                video_url = f"https://www.youtube.com/watch?v={video_input}"
-            else:
-                video_url = video_input
+            video_id = get_video_id(video_input)
             
             try:
-                # 1. Fetch Transcripts (LangChain Native Way - Bypasses the bug!)
-                loader = YoutubeLoader.from_youtube_url(
-                    video_url, 
-                    add_video_info=False,
-                    transcript_format=YouTubeTranscriptApi.FORMAT_TEXT,
-                    proxies={"http": "", "https": ""}, # Keep empty unless using proxies
-                    cookies="cookies.txt" # Points to your exported file
-                )
-                docs = loader.load()
+                # 1. Fetch Transcripts 
+                transcript_fetcher = YouTubeTranscriptApi.list_transcripts(video_id, cookies="cookies.txt")
                 
-                # 2. Chunking (We use split_documents now instead of create_documents)
+                try:
+                    transcript_list = transcript_fetcher.find_transcript(['en'])
+                except:
+                    # Fallback:
+                    for t in transcript_fetcher:
+                        transcript_list = t.translate('en')
+                        break
+                
+                transcript_data = transcript_list.fetch()
+                transcript = " ".join(chunk["text"] for chunk in transcript_data)
+                
+                # 2. Chunking
                 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                chunks = splitter.split_documents(docs)
+                chunks = splitter.create_documents([transcript])
                 
                 if not chunks:
                     st.sidebar.error("No transcript found for this video.")
@@ -84,26 +88,26 @@ if process_btn:
                 retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
                 
                 # 4. LLM Setup
-                # 4. LLM Setup
                 llm = HuggingFaceEndpoint(
-    repo_id="Qwen/Qwen2.5-7B-Instruct", 
-    task="text-generation",
-    max_new_tokens=512,
-    huggingfacehub_api_token=hf_api_token
-)
+                    repo_id="Qwen/Qwen2.5-7B-Instruct", 
+                    task="text-generation",
+                    max_new_tokens=512,
+                    huggingfacehub_api_token=hf_api_token
+                )
                 chat_model = ChatHuggingFace(llm=llm)
-# 5. Prompts & Chains
+
+                # 5. Prompts
                 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an AI assistant analyzing a video transcript. Answer using ONLY the context below.\n\nContext:\n{context}"),
-    MessagesPlaceholder(variable_name="history"),
-    ("human", "{question}")
-])
-
-
+                    ("system", "You are an AI assistant analyzing a video transcript. Answer using ONLY the context below.\n\nContext:\n{context}"),
+                    MessagesPlaceholder(variable_name="history"),
+                    ("human", "{question}")
+                ])
+                
+                
                 context_and_question = RunnableParallel({
-    'context': itemgetter("question") | retriever | RunnableLambda(format_docs),
-    'question': itemgetter("question")
-})
+                    'context': itemgetter("question") | retriever | RunnableLambda(format_docs),
+                    'question': itemgetter("question")
+                })
                 
                 base_chain = context_and_question | prompt | chat_model | StrOutputParser()
                 
@@ -124,6 +128,7 @@ if process_btn:
                 
             except Exception as e:
                 st.sidebar.error(f"Error processing video: {str(e)}")
+
 
 if st.session_state.summary:
     st.subheader("📋 Systematic Video Summary")
