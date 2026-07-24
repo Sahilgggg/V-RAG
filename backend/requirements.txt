@@ -1,9 +1,13 @@
-streamlit
+fastapi
+uvicorn
+python-multipart
+requests
+pypdf
 youtube-transcript-api
 langchain-core
 langchain-community
 langchain-huggingface
+langchain-text-splitters
 faiss-cpu
 sentence-transformers
 huggingface-hub
-torchvision

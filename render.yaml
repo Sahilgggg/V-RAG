@@ -1,0 +1,24 @@
+services:
+  # ─── Backend (FastAPI) ─────────────────────────────────────────────────────
+  - type: web
+    name: v-rag-backend
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+  # ─── Frontend (Streamlit) ──────────────────────────────────────────────────
+  - type: web
+    name: v-rag-frontend
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r frontend/requirements.txt
+    startCommand: streamlit run frontend/app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: BACKEND_URL
+        value: https://v-rag-backend.onrender.com
